@@ -188,7 +188,7 @@ while true; do
     date=`date "+%Y-%m-%d %H:%M:%S"`
     seconds=`date "+%s"`
     half=`expr \( $seconds % 60 \) / 30`
-    if [ "$CONFIG_TPM" = n ]; then
+    if [ "$CONFIG_TPM" != "y" -a "$CONFIG_TPM2_TOOLS" != "y"  ]; then
       TOTP="NO TPM"
     elif [ "$half" != "$last_half" ]; then
       last_half=$half;
@@ -350,28 +350,33 @@ while true; do
   fi
 
   if [ "$totp_confirm" = "p" ]; then
-    if [ "$CONFIG_TPM" = "y" ]; then
+    if [ "$CONFIG_TPM" = "y" -o "$CONFIG_TPM2_TOOLS" = "y" ]; then
       if (whiptail --title 'Reset the TPM' \
-          --yesno "This will clear the TPM and TPM password, replace them with new ones!\n\nDo you want to proceed?" 16 90) then
-        /bin/tpm-reset
+		   --yesno "This will clear the TPM and TPM password, replace them with new ones!\n\nDo you want to proceed?" 16 90) then
+	 if [ "$CONFIG_TPM" = "y" ]; then
+		 /bin/tpm-reset
+	 elif [ "$CONFIG_TPM2_TOOLS" = "y" ]; then
+		 tpmr reset
+	 fi
 
         # now that the TPM is reset, remove invalid TPM counter files
         mount_boot
         mount -o rw,remount /boot
-        rm -f /boot/kexec_rollback.txt
+        rm -f /boot/kexec_rollback.txt || true
 
-        # create Heads TPM counter before any others
-        check_tpm_counter /boot/kexec_rollback.txt \
-        || die "Unable to find/create tpm counter"
-        counter="$TPM_COUNTER"
+        if [ "$CONFIG_IGNORE_ROLLBACK" != "y" ]; then
+            # create Heads TPM counter before any others
+            check_tpm_counter /boot/kexec_rollback.txt \
+                || die "Unable to find/create tpm counter"
+            counter="$TPM_COUNTER"
 
-        increment_tpm_counter $counter \
-        || die "Unable to increment tpm counter"
+            increment_tpm_counter $counter \
+                || die "Unable to increment tpm counter"
 
-        sha256sum /tmp/counter-$counter > /boot/kexec_rollback.txt \
-        || die "Unable to create rollback file"
-        mount -o ro,remount /boot
-
+            sha256sum /tmp/counter-$counter > /boot/kexec_rollback.txt \
+                || die "Unable to create rollback file"
+            mount -o ro,remount /boot
+        fi
         update_totp
       else
         echo "Returning to the main menu"
